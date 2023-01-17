@@ -2,11 +2,16 @@
 package HelloHelloWorld;
 option csharp_namespace = "ClusterHelloWorld.Messages";
 
-message HelloRequest {}
-message HelloResponse {
-    string Message=1;
+message HelloRequest3
+{
 }
 
-service HelloGrain {
-	rpc SayHello(HelloRequest) returns (HelloResponse) {}
+message HelloResponse
+{
+    string Message = 1;
+}
+
+service HelloGrain
+{
+	rpc SayHello(HelloRequest3) returns (HelloResponse) {}
 }

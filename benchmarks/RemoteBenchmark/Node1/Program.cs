@@ -57,7 +57,8 @@ class Program
         Console.WriteLine("Enter remote advertised host (Default = 127.0.0.1)");
         var remoteAddress = Console.ReadLine().Trim();
 
-        if (string.IsNullOrEmpty(remoteAddress)) remoteAddress = "127.0.0.1";
+        if (string.IsNullOrEmpty(remoteAddress))
+            remoteAddress = "127.0.0.1";
 
         var actorSystemConfig = new ActorSystemConfig()
             .WithDeadLetterThrottleCount(10)

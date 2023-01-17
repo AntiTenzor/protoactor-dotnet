@@ -5,14 +5,19 @@
 // -----------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System.Collections.Generic;
+
 using Consul;
+
 using JetBrains.Annotations;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+
 using Proto.Diagnostics;
+
+
 
 namespace Proto.Cluster.Consul;
 //TLDR;
@@ -25,9 +30,13 @@ namespace Proto.Cluster.Consul;
 [PublicAPI]
 public class ConsulProvider : IClusterProvider
 {
-    private static ILogger _logger = Log.CreateLogger<ConsulProvider>();
+    private static readonly ILogger _logger = Log.CreateLogger<ConsulProvider>();
+
     private readonly TimeSpan _blockingWaitTime;
     private readonly ConsulClient _client;
+
+    private readonly string m_consulClusterLocalAddress;
+    private readonly int m_consulClusterLocalPort;
 
     private readonly TimeSpan
         _deregisterCritical; //this is how long the service exists in consul before disappearing when unhealthy, min 1 min
@@ -70,7 +79,7 @@ public class ConsulProvider : IClusterProvider
         }
     }
 
-    public ConsulProvider(ConsulProviderConfig config) : this(config, _ => { })
+    public ConsulProvider(ConsulProviderConfig config) : this(config, null)
     {
     }
 
@@ -80,6 +89,13 @@ public class ConsulProvider : IClusterProvider
         _refreshTtl = config.RefreshTtl;
         _deregisterCritical = config.DeregisterCritical;
         _blockingWaitTime = config.BlockingWaitTime;
+
+        m_consulClusterLocalAddress = config.ConsulClusterLocalAddress;
+        m_consulClusterLocalPort = config.ConsulClusterLocalPort;
+
+        if (clientConfiguration == null)
+            clientConfiguration = UpdateConsulClientConfiguration;
+
         _client = new ConsulClient(clientConfiguration);
     }
 
@@ -93,6 +109,12 @@ public class ConsulProvider : IClusterProvider
     ) :
         this(options.Value, clientConfiguration)
     {
+    }
+
+    private void UpdateConsulClientConfiguration(ConsulClientConfiguration ccc)
+    {
+        UriBuilder ub = new UriBuilder("http", m_consulClusterLocalAddress, m_consulClusterLocalPort);
+        ccc.Address = ub.Uri;
     }
 
     public async Task StartMemberAsync(Cluster cluster)
@@ -237,30 +259,33 @@ public class ConsulProvider : IClusterProvider
             }
         );
 
-    //register this cluster in consul.
+    /// <summary>
+    /// Register this Proto.Actor cluster in Consul.
+    /// </summary>
+    /// <returns></returns>
     private async Task RegisterMemberAsync()
     {
-        var s = new AgentServiceRegistration
+        AgentServiceRegistration s = new AgentServiceRegistration();
+        s.ID = _consulServiceInstanceId;
+        s.Name = _consulServiceName;
+        s.Tags = _kinds.ToArray();
+        //s.Address = _host;
+        s.Address = _host;
+        s.Port = _port;
+        s.Check = new AgentServiceCheck
         {
-            ID = _consulServiceInstanceId,
-            Name = _consulServiceName,
-            Tags = _kinds.ToArray(),
-            Address = _host,
-            Port = _port,
-            Check = new AgentServiceCheck
-            {
-                DeregisterCriticalServiceAfter = _deregisterCritical,
-                TTL = _serviceTtl
-            },
-            Meta = new Dictionary<string, string>
-            {
-                //register a unique ID for the current process
-                //if a node with host X and port Y, joins, then leaves, then joins again.
-                //we need a way to distinguish the new node from the old node.
-                //this is what this ID is for
-                { "id", _cluster.System.Id }
-            }
+            DeregisterCriticalServiceAfter = _deregisterCritical,
+            TTL = _serviceTtl
         };
+        s.Meta = new Dictionary<string, string>
+        {
+            //register a unique ID for the current process
+            //if a node with host X and port Y, joins, then leaves, then joins again.
+            //we need a way to distinguish the new node from the old node.
+            //this is what this ID is for
+            { "id", _cluster.System.Id }
+        };
+
 
         await _client.Agent.ServiceRegister(s);
     }

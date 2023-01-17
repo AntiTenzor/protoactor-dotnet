@@ -6,16 +6,23 @@
 
 using System;
 using System.Threading.Tasks;
-using ClusterHelloWorld.Messages;
+
 using Microsoft.Extensions.Logging;
+
 using Proto;
-using Proto.Cluster;
-using Proto.Cluster.Partition;
-using Proto.Cluster.Seed;
 using Proto.Remote;
 using Proto.Remote.GrpcNet;
+using Proto.Cluster;
+using Proto.Cluster.Seed;
+using Proto.Cluster.Partition;
+
+using ClusterHelloWorld.Messages;
+
 using static Proto.CancellationTokens;
+
 using ProtosReflection = ClusterHelloWorld.Messages.ProtosReflection;
+
+
 
 Log.SetLoggerFactory(
     LoggerFactory.Create(l => l.AddConsole().SetMinimumLevel(LogLevel.Information)));
@@ -42,10 +49,10 @@ Console.WriteLine("Started");
 
 var helloGrain = system.Cluster().GetHelloGrain("MyGrain");
 
-var res = await helloGrain.SayHello(new HelloRequest(), FromSeconds(5));
+var res = await helloGrain.SayHello(new HelloRequest3(), FromSeconds(5));
 Console.WriteLine(res.Message);
 
-res = await helloGrain.SayHello(new HelloRequest(), FromSeconds(5));
+res = await helloGrain.SayHello(new HelloRequest3(), FromSeconds(5));
 Console.WriteLine(res.Message);
 
 Console.WriteLine("Press enter to exit");

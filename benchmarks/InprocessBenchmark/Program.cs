@@ -4,30 +4,34 @@
 // </copyright>
 // -----------------------------------------------------------------------
 using System;
-using System.Diagnostics;
-using System.Globalization;
 using System.Linq;
 using System.Runtime;
+using System.Diagnostics;
+using System.Globalization;
 using System.Threading.Tasks;
+
 using Proto;
 using Proto.Mailbox;
 
 public class Program
 {
+    public const int batchSize = 100;
+    public const int messageCount = 10_000_000;
+
     private static async Task Main()
     {
         var context = new RootContext(new ActorSystem());
-        Console.WriteLine($"Is Server GC {GCSettings.IsServerGC}");
-        const int messageCount = 1_000_000;
-        const int batchSize = 100;
+        Console.WriteLine($"Is Server GC : {GCSettings.IsServerGC}");
+        Console.WriteLine($"Batch size   : {batchSize}");
+        Console.WriteLine($"Message count: {messageCount}");
 
         Console.WriteLine("ClientCount\t\tDispatcher\t\tElapsed\t\tMsg/sec");
         var tps = new[] {50, 100, 200, 400, 800};
-        int[] clientCounts = {4, 8, 16, 32};
+        int[] clientCounts = {1, 2, 4, 8, 16, 32, 64};
 
-        foreach (var t in tps)
+        foreach (var throughput in tps)
         {
-            var d = new ThreadPoolDispatcher {Throughput = t};
+            var d = new Proto.Mailbox.ThreadPoolDispatcher { Throughput = throughput };
 
             foreach (var clientCount in clientCounts)
             {
@@ -35,14 +39,13 @@ public class Program
                 var pongActor = new PID[clientCount];
                 var completions = new TaskCompletionSource<bool>[clientCount];
 
-                var pongProps = Props.FromProducer(() => new PongActor())
-                    .WithDispatcher(d);
+                Proto.Props pongProps = Props.FromProducer(() => new InprocessBenchmark.Actors.PongActor()).WithDispatcher(d);
 
                 for (var i = 0; i < clientCount; i++)
                 {
                     var tsc = new TaskCompletionSource<bool>();
                     completions[i] = tsc;
-                    var pingProps = Props.FromProducer(() => new PingActor(tsc, messageCount, batchSize))
+                    var pingProps = Props.FromProducer(() => new InprocessBenchmark.Actors.PingActor(tsc, messageCount, batchSize))
                         .WithDispatcher(d);
 
                     pingActor[i] = context.Spawn(pingProps);
@@ -54,99 +57,46 @@ public class Program
 
                 for (var i = 0; i < clientCount; i++)
                 {
-                    var client = pingActor[i];
+                    PID pingActorId = pingActor[i];
                     var echo = pongActor[i];
 
-                    context.Send(client, new Start(echo));
+                    context.Send(pingActorId, new Start(echo));
                 }
 
                 await Task.WhenAll(tasks);
 
                 sw.Stop();
-                var totalMessages = messageCount * 2 * clientCount;
+                long totalMessages = messageCount * 2L * clientCount;
 
-                var x = ((int) (totalMessages / (double) sw.ElapsedMilliseconds * 1000.0d)).ToString("#,##0,,M",
-                    CultureInfo.InvariantCulture
-                );
-                Console.WriteLine($"{clientCount}\t\t\t{t}\t\t\t{sw.ElapsedMilliseconds} ms\t\t{x}");
-                await Task.Delay(2000);
-            }
-        }
+                long speedMsgPerSecond = (long)Math.Floor(totalMessages / (double)sw.ElapsedMilliseconds * 1000.0d);
+                string speedStr = speedMsgPerSecond.ToString("# ### ### ##0", CultureInfo.InvariantCulture);
+
+                Console.WriteLine($"{clientCount}\t\t\t{throughput}\t\t\t{sw.ElapsedMilliseconds} ms\t\t{speedStr}");
+                await Task.Delay(5000);
+            } // End foreach (var clientCount in clientCounts)
+        } // End foreach (var throughput in tps)
     }
 }
 
 public class Msg
 {
-    public Msg(PID pingActor) => PingActor = pingActor;
+    public Msg(PID pingActor, long msgId)
+    {
+        MsgID = msgId;
+        PingActor = pingActor;
+    }
+
+    public long MsgID { get; }
 
     public PID PingActor { get; }
 }
 
 public class Start
 {
-    public Start(PID sender) => Sender = sender;
+    public Start(PID sender)
+    {
+        Sender = sender;
+    }
 
     public PID Sender { get; }
-}
-
-public class PongActor : IActor
-{
-    public Task ReceiveAsync(IContext context)
-    {
-        switch (context.Message)
-        {
-            case Msg msg:
-                context.Send(msg.PingActor, msg);
-                break;
-        }
-
-        return Task.CompletedTask;
-    }
-}
-
-public class PingActor : IActor
-{
-    private readonly int _batchSize;
-    private readonly TaskCompletionSource<bool> _wgStop;
-
-    private int _messageCount;
-    private PID _targetPid;
-
-    public PingActor(TaskCompletionSource<bool> wgStop, int messageCount, int batchSize)
-    {
-        _wgStop = wgStop;
-        _messageCount = messageCount;
-        _batchSize = batchSize;
-    }
-
-    public Task ReceiveAsync(IContext context)
-    {
-        switch (context.Message)
-        {
-            case Start s:
-                _targetPid = s.Sender;
-                SendBatch(context);
-                break;
-            case Msg m:
-                _messageCount--;
-
-                if (_messageCount <= 0) _wgStop.SetResult(true);
-                else context.Send(_targetPid, m);
-                break;
-        }
-
-        return Task.CompletedTask;
-    }
-
-    private void SendBatch(IContext context)
-    {
-        var m = new Msg(context.Self);
-
-        for (var i = 0; i < _batchSize; i++)
-        {
-            context.Send(_targetPid, m);
-        }
-
-        _messageCount -= _batchSize;
-    }
 }

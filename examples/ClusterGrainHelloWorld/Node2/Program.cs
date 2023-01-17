@@ -61,9 +61,9 @@ public class HelloGrain : HelloGrainBase
         _identity = identity;
     }
 
-    public override Task<HelloResponse> SayHello(HelloRequest request)
+    public override Task<HelloResponse> SayHello(HelloRequest3 request)
     {
-        Console.WriteLine("Got request!!");
+        Console.WriteLine("Got 'SayHello' request!!");
 
         var res = new HelloResponse
         {

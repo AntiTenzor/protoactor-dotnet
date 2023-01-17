@@ -33,8 +33,16 @@ internal class Program
             .BindToLocalhost()
             .WithProtoMessages(MessagesReflection.Descriptor);
 
-        var consulProvider =
-            new ConsulProvider(new ConsulProviderConfig());
+        //Proto.Remote.Endpoint consulCluster = new Proto.Remote.Endpoint();
+        Proto.Cluster.Consul.ConsulProviderConfig consulProviderConfig = new ConsulProviderConfig()
+        {
+            ConsulClusterLocalAddress = "122.2.2.2",
+            ConsulClusterLocalPort = 8500,
+        };
+        Proto.Cluster.Consul.ConsulProvider consulProvider = new ConsulProvider(consulProviderConfig)
+        {
+
+        };
 
         var clusterConfig =
             ClusterConfig
@@ -44,11 +52,12 @@ internal class Program
             .WithRemote(remoteConfig)
             .WithCluster(clusterConfig);
 
-        await system
-            .Cluster()
-            .StartMemberAsync();
+        //await system.Cluster().StartMemberAsync();
+        system.Cluster().StartMemberAsync().Wait();
 
-        Console.WriteLine("Started");
+        Console.WriteLine("ActorSystem is started and (I hope) it was registered to Consul cluster...");
+
+
 
         //subscribe to the eventstream via type, just like you do locally
         system.EventStream.SubscribeToTopic<MyMessage>("MyTopic.*",

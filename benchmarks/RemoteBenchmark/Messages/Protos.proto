@@ -4,8 +4,10 @@ option csharp_namespace = "Messages";
 import "Proto.Actor/Protos.proto";
 
 message Start {}
+
 message StartRemote {
     actor.PID Sender = 1;
 }
+
 message Ping {}
 message Pong {}

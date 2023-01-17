@@ -10,6 +10,9 @@ namespace Proto.Cluster.Consul;
 
 public sealed record ConsulProviderConfig
 {
+    public string ConsulClusterLocalAddress { get; init; } = "127.0.0.1";
+    public int ConsulClusterLocalPort { get; init; } = 8500;
+
     /// <summary>
     ///     Default value is 3 seconds
     /// </summary>
@@ -18,7 +21,7 @@ public sealed record ConsulProviderConfig
     /// <summary>
     ///     Default value is 1 second
     /// </summary>
-    public TimeSpan RefreshTtl { get; init; } = TimeSpan.FromSeconds(1);
+    public TimeSpan RefreshTtl { get; init; } = TimeSpan.FromSeconds(2);
 
     /// <summary>
     ///     Default value is 10 seconds
