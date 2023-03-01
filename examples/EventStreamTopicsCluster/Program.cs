@@ -29,24 +29,25 @@ internal class Program
         var l = LoggerFactory.Create(x => x.AddConsole().SetMinimumLevel(LogLevel.Information));
         Log.SetLoggerFactory(l);
 
-        var remoteConfig = GrpcNetRemoteConfig
-            .BindToLocalhost()
-            .WithProtoMessages(MessagesReflection.Descriptor);
-
         //Proto.Remote.Endpoint consulCluster = new Proto.Remote.Endpoint();
         Proto.Cluster.Consul.ConsulProviderConfig consulProviderConfig = new ConsulProviderConfig()
         {
             ConsulClusterLocalAddress = "122.2.2.2",
-            ConsulClusterLocalPort = 8500,
+            ConsulClusterLocalPort = 8500,            
         };
         Proto.Cluster.Consul.ConsulProvider consulProvider = new ConsulProvider(consulProviderConfig)
         {
-
+            
         };
 
         var clusterConfig =
             ClusterConfig
                 .Setup("MyCluster", consulProvider, new PartitionIdentityLookup());
+        
+        var remoteConfig = GrpcNetRemoteConfig
+            .BindTo("169.227.227.209")
+            //.BindToLocalhost()
+            .WithProtoMessages(MessagesReflection.Descriptor);
 
         var system = new ActorSystem()
             .WithRemote(remoteConfig)
