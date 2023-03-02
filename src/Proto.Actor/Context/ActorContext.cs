@@ -73,16 +73,12 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
     {
         if (Sender is not null)
         {
-            if (Logger.IsEnabled(LogLevel.Debug))
-            {
-                Logger.LogDebug("{Self} Responding to {Sender} with message {Message}", Self, Sender, message);
-            }
-
+            Logger.ActorResponds(Self, Sender, Message);
             SendUserMessage(Sender, message);
         }
         else
         {
-            Logger.LogWarning("{Self} Tried to respond but sender is null, with message {Message}", Self, message);
+            Logger.ActorRespondsButSenderIsNull(Self, Message);
         }
     }
 
@@ -106,10 +102,9 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
 
             return pid;
         }
-        catch (Exception x)
+        catch (Exception)
         {
-            Logger.LogError(x, "{Self} Failed to spawn child actor {Name}", Self, name);
-
+            Logger.FailedToSpawnChildActor(Self, name);
             throw;
         }
     }
@@ -181,11 +176,11 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         switch (_messageOrEnvelope)
         {
             case null:
-                Logger.LogWarning("Message is null");
+                Logger.MessageIsNull();
 
                 return;
             case SystemMessage _:
-                Logger.LogWarning("SystemMessage cannot be forwarded. {Message}", _messageOrEnvelope);
+                Logger.SystemMessageCannotBeForwarded(_messageOrEnvelope);
 
                 return;
             default:
@@ -280,6 +275,23 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         ScheduleContinuation(target, cont);
     }
 
+    public void ReenterAfter<T>(Task<T> target, Action<Task<T>> action)
+    {
+        var msg = _messageOrEnvelope;
+
+        var cont = new Continuation(
+            () =>
+            {
+                action(target);
+
+                return Task.CompletedTask;
+            },
+            msg,
+            Actor);
+
+        ScheduleContinuation(target, cont);
+    }
+
     public void ReenterAfter(Task target, Func<Task, Task> action)
     {
         var msg = _messageOrEnvelope;
@@ -348,10 +360,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
             Console.WriteLine(
                 $"[Supervision] Actor {Self} : {Actor.GetType().Name} failed with message:{message} exception:{reason}");
 
-            Logger.LogError(reason,
-                "[Supervision] Actor {Self} : {ActorType} failed with message:{Message} exception:{Reason}", Self,
-                Actor.GetType().Name, message, reason
-            );
+            Logger.EscalateFailure(reason, Self, Actor.GetType().Name, message);
         }
 
         ActorMetrics.ActorFailureCount.Add(1, _metricTags);
@@ -390,7 +399,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         }
         catch (Exception x)
         {
-            Logger.LogError(x, "Error handling SystemMessage {Message}", msg);
+            Logger.ErrorHandlingSystemMessage(x, msg);
 
             throw;
         }
@@ -417,7 +426,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
             }
 
             var sw = Stopwatch.StartNew();
-            await self.InternalInvokeUserMessageAsync(msg);
+            await self.InternalInvokeUserMessageAsync(msg).ConfigureAwait(false);
             sw.Stop();
 
             if (self.System.Metrics.Enabled && metricTags.Length == 3)
@@ -443,7 +452,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
     private async ValueTask HandleReceiveTimeout()
     {
         _messageOrEnvelope = Proto.ReceiveTimeout.Instance;
-        await DefaultReceive();
+        await InvokeUserMessageAsync(Proto.ReceiveTimeout.Instance).ConfigureAwait(false);
     }
 
     private ValueTask HandleProcessDiagnosticsRequest(ProcessDiagnosticsRequest processDiagnosticsRequest)
@@ -521,7 +530,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         //static, dont create closure
         static async ValueTask Await(ActorContext self, Task t, bool resetReceiveTimeout)
         {
-            await t;
+            await t.ConfigureAwait(false);
 
             if (resetReceiveTimeout)
             {
@@ -563,7 +572,7 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
     private static ValueTask HandleUnknownSystemMessage(object msg)
     {
         //TODO: sounds like a pretty severe issue if we end up here? what todo?
-        Logger.LogWarning("Unknown system message {Message}", msg);
+        Logger.UnknownSystemMessage(msg);
 
         return default;
     }
@@ -575,20 +584,13 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         // an older Actor instance.
         if (cont.Actor != Actor && cont is not { Actor: null })
         {
-            if (Logger.IsEnabled(LogLevel.Warning))
-            {
-                Logger.LogWarning(
-                    "{Self} Dropping Continuation (ReenterAfter) of {Message}",
-                    Self,
-                    MessageEnvelope.UnwrapMessage(cont.Message)
-                );
-            }
+                Logger.DroppingContinuation(Self, MessageEnvelope.UnwrapMessage(cont.Message));
 
-            return;
+                return;
         }
 
         _messageOrEnvelope = cont.Message;
-        await cont.Action();
+        await cont.Action().ConfigureAwait(false);
     }
 
     private ActorContextExtras EnsureExtras()
@@ -657,8 +659,8 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
     {
         _state = ContextState.Restarting;
         CancelReceiveTimeout();
-        await InvokeUserMessageAsync(Restarting.Instance);
-        await StopAllChildren();
+        await InvokeUserMessageAsync(Restarting.Instance).ConfigureAwait(false);
+        await StopAllChildren().ConfigureAwait(false);
 
         if (System.Metrics.Enabled)
         {
@@ -715,11 +717,11 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         //In the case of a Watchee terminating, this will have no effect, except that the terminate message is
         //passed onto the user message Receive for user level handling
         _extras?.RemoveChild(msg.Who);
-        await InvokeUserMessageAsync(msg);
+        await InvokeUserMessageAsync(msg).ConfigureAwait(false);
 
         if (_state is ContextState.Stopping or ContextState.Restarting)
         {
-            await TryRestartOrStopAsync();
+            await TryRestartOrStopAsync().ConfigureAwait(false);
         }
     }
 
@@ -747,15 +749,15 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
         {
             try
             {
-                await self.InvokeUserMessageAsync(Stopping.Instance);
+                await self.InvokeUserMessageAsync(Stopping.Instance).ConfigureAwait(false);
             }
             catch (Exception e)
             {
-                Logger.LogError(e, "{Self} Error while handling Stopping message", self.Self);
+                Logger.ErrorHandlingStopingMessage(e, self.Self);
                 // do not rethrow - prevent exceptions thrown from stopping handler from restarting the actor 
             }
 
-            await self.StopAllChildren();
+            await self.StopAllChildren().ConfigureAwait(false);
         }
     }
 
@@ -797,11 +799,11 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
     {
         System.ProcessRegistry.Remove(Self);
         //This is intentional
-        await InvokeUserMessageAsync(Stopped.Instance);
+        await InvokeUserMessageAsync(Stopped.Instance).ConfigureAwait(false);
 
         _extras?.Dispose();
 
-        await DisposeActorIfDisposable();
+        await DisposeActorIfDisposable().ConfigureAwait(false);
 
         //Notify watchers
         _extras?.Watchers.SendSystemMessage(Terminated.From(Self, TerminatedReason.Stopped), System);
@@ -814,11 +816,11 @@ public class ActorContext : IMessageInvoker, IContext, ISupervisor
 
     private async ValueTask RestartAsync()
     {
-        await DisposeActorIfDisposable();
+        await DisposeActorIfDisposable().ConfigureAwait(false);
         Actor = IncarnateActor();
         Self.SendSystemMessage(System, ResumeMailbox.Instance);
 
-        await InvokeUserMessageAsync(Started.Instance);
+        await InvokeUserMessageAsync(Started.Instance).ConfigureAwait(false);
     }
 
     private ValueTask DisposeActorIfDisposable()

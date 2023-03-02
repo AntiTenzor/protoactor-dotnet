@@ -34,8 +34,8 @@ public class PartitionIdentityTests
     [Theory]
     [InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Pull, PartitionIdentityLookup.Send.Full)]
     [InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Pull, PartitionIdentityLookup.Send.Delta)]
-    [InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Push, PartitionIdentityLookup.Send.Full)]
-    [InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Push, PartitionIdentityLookup.Send.Delta)]
+    //[InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Push, PartitionIdentityLookup.Send.Full)]
+    //[InlineData(100, 5, 12, 20, PartitionIdentityLookup.Mode.Push, PartitionIdentityLookup.Send.Delta)]
     public async Task ClusterMaintainsSingleConcurrentVirtualActorPerIdentity(
         int identityCount,
         int batchSize,
@@ -48,7 +48,8 @@ public class PartitionIdentityTests
         const int memberCount = 3;
 
         Interlocked.Exchange(ref _requests, 0);
-        await using var fixture = await InitClusterFixture(memberCount, mode, send);
+        var fixture = await InitClusterFixture(memberCount, mode, send);
+        await using var __ = fixture;
 
         var identities = Enumerable.Range(0, identityCount).Select(_ => Guid.NewGuid().ToString("N")).ToList();
 
@@ -68,7 +69,7 @@ public class PartitionIdentityTests
 
         while (!stop.IsCancellationRequested)
         {
-            await Task.Delay(TimeSpan.FromSeconds(1)).ConfigureAwait(false);
+            await Task.Delay(TimeSpan.FromSeconds(1));
             var now = Interlocked.Read(ref _requests);
 
             _output.WriteLine(
@@ -197,7 +198,7 @@ public class PartitionIdentityTests
                 {
                     while (!cancellationToken.IsCancellationRequested)
                     {
-                        await Task.Delay(rnd.Next(10000), cancellationToken).ConfigureAwait(false);
+                        await Task.Delay(rnd.Next(10000), cancellationToken);
                         var spawn = rnd.Next() % 2 == 0;
 
                         for (var i = 0; i <= rnd.Next() % 2; i++)

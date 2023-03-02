@@ -16,24 +16,20 @@ public class GossipActor : IActor
     private static readonly ILogger Logger = Log.CreateLogger<GossipActor>();
     private readonly TimeSpan _gossipRequestTimeout;
     private readonly IGossip _internal;
-    private readonly ActorSystem _system;
 
     // lookup from state key -> consensus checks
 
     public GossipActor(
         ActorSystem system,
         TimeSpan gossipRequestTimeout,
-        string myId,
         InstanceLogger? instanceLogger,
         int gossipFanout,
         int gossipMaxSend
     )
     {
-        _system = system;
         _gossipRequestTimeout = gossipRequestTimeout;
-
-        _internal = new Gossip(myId, gossipFanout, gossipMaxSend, instanceLogger,
-            () => _system.Cluster().MemberList.GetMembers());
+        _internal = new Gossip(system.Id, gossipFanout, gossipMaxSend, instanceLogger,
+            () => system.Cluster().MemberList.GetMembers());
     }
 
     public Task ReceiveAsync(IContext context) =>
@@ -157,7 +153,7 @@ public class GossipActor : IActor
                 var delta = DateTime.UtcNow - start;
                 try
                 {
-                    await task;
+                    await task.ConfigureAwait(false);
                     memberStateDelta.CommitOffsets();
                 }
                 catch (DeadLetterException)
